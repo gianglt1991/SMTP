@@ -1,0 +1,49 @@
+worker:
+    build: ./worker
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - JOB_QUEUE=email_jobs
+      - DELIVERED_QUEUE=delivered
+      - FAILED_QUEUE=failed_jobs
+      - BOUNCED_QUEUE=bounced
+      - SMTP_CONFIG_FILE=/app/smtp_rotation.json
+      - BLPOP_TIMEOUT=5
+      - DKIM_KEY_PATH=/app/keys/yourdomain.com.mail.private
+      - DKIM_DOMAIN=yourdomain.com
+      - DKIM_SELECTOR=mail
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./worker/smtp_rotation.json:/app/smtp_rotation.json
+      - ./worker/logs:/app/logs
+      - ./worker/keys:/app/keys
+    depends_on:
+      queue:
+        condition: service_healthy
+      smtp1:
+        condition: service_started
+      smtp2:
+        condition: service_started
+      smtp3:
+        condition: service_started
+    secrets:
+      - smtp_smtp1_user
+      - smtp_smtp1_pass
+      - smtp_smtp2_user
+      - smtp_smtp2_pass
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 2
+
+secrets:
+  smtp_smtp1_user:
+    file: ./secrets/smtp_smtp1_user
+  smtp_smtp1_pass:
+    file: ./secrets/smtp_smtp1_pass
+  smtp_smtp2_user:
+    file: ./secrets/smtp_smtp2_user
+  smtp_smtp2_pass:
+    file: ./secrets/smtp_smtp2_pass

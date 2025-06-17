@@ -1,0 +1,5 @@
+# List of IPs to monitor for blacklist status
+118.70.128.196
+222.252.26.254
+118.70.139.14
+118.70.139.13

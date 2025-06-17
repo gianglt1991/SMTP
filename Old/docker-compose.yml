@@ -1,0 +1,108 @@
+#version: "3.8"
+
+services:
+  gateway-api:
+    build: ./gateway-api
+    ports:
+      - "8080:8080"
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+    depends_on:
+      - queue
+
+  queue:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  worker:
+    build: ./worker
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - SMTP_ROTATION_CONFIG=/app/smtp_rotation.json
+    depends_on:
+      - queue
+    volumes:
+      - ./worker/smtp_rotation.json:/app/smtp_rotation.json
+
+        #  smtp1:
+        #build: ./smtp-relay
+        #hostname: smtp1
+        #networks:
+        #relay-net:
+        #ipv4_address: 172.30.0.2
+
+        #smtp2:
+        #build: ./smtp-relay
+        #hostname: smtp2
+        #networks:
+        #relay-net:
+        #ipv4_address: 172.30.0.3
+
+        #smtp3:
+        #build: ./smtp-relay
+        #hostname: smtp3
+        #networks:
+        #relay-net:
+        #ipv4_address: 172.30.0.4
+
+  metrics:
+    image: prom/prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+
+  mailq-logger:
+    build: ./mailq-logger
+    depends_on:
+      - queue
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+
+  ip-reputation:
+    build: ./ip-reputation
+    volumes:
+      - ./ip-reputation/blacklist.txt:/app/blacklist.txt
+
+  unsubscribe-processor:
+    build: ./unsubscribe
+    volumes:
+      - ./unsubscribe/unsub_list.json:/app/unsub_list.json
+
+  retry-handler:
+    build: ./retry-handler
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+
+  report-exporter:
+    build: ./report-exporter
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+    volumes:
+      - ./report-exporter/reports:/app/reports
+
+  mail-ui:
+    build: ./mail-ui
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./unsubscribe/unsub_list.json:/app/unsub_list.json
+
+volumes:
+  grafana-storage:
+
+networks:
+  relay-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+

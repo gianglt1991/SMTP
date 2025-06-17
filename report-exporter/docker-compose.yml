@@ -1,0 +1,20 @@
+  report-exporter:
+    build: ./report-exporter
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - REPORT_INTERVAL=86400
+      - REPORT_DIR=/app/reports
+      - REPORT_KEYS=delivered,bounced,complaints
+      - MAX_REPORT_AGE_DAYS=30
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./report-exporter/reports:/app/reports
+      - ./report-exporter/logs:/app/logs
+    depends_on:
+      queue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

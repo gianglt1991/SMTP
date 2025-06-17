@@ -1,0 +1,53 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'email-api'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  - job_name: 'gateway-api'
+    static_configs:
+      - targets: ['gateway-api:8080']
+        labels:
+          service: 'gateway-api'
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+
+  - job_name: 'smtp-relay'
+    static_configs:
+      - targets: ['smtp1:9154', 'smtp2:9154', 'smtp3:9154']
+        labels:
+          service: 'smtp-relay'
+
+  - job_name: 'docker'
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_prometheus_scrape]
+        regex: 'true'
+        action: keep
+      - source_labels: [__meta_docker_container_name]
+        target_label: container_name
+
+tsdb:
+  retention_time: 15d
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+</alerting>
+
+rule_files:
+  - /etc/prometheus/alerting_rules.yml

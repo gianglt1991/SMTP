@@ -1,0 +1,23 @@
+myhostname = smtp-relay.local
+debug_peer_level = 2
+relayhost = 
+inet_interfaces = all
+inet_protocols = all
+mynetworks = 127.0.0.0/8 172.30.0.0/16 10.6.68.0/24 10.6.1.0/24
+relay_domains = example.com, yourdomain.com
+smtpd_recipient_restrictions = 
+    permit_mynetworks, 
+    reject_unauth_destination,
+    check_policy_service unix:private/policyd-spf
+smtpd_banner = smtp-relay.local ESMTP
+milter_default_action = accept
+milter_protocol = 6
+smtpd_milters = inet:localhost:8891
+non_smtpd_milters = inet:localhost:8891
+smtpd_tls_security_level = may
+smtp_tls_security_level = may
+smtpd_tls_cert_file = /etc/postfix/certs/cert.pem
+smtpd_tls_key_file = /etc/postfix/certs/key.pem
+smtpd_client_connection_rate_limit = 100
+anvil_rate_time_unit = 60s
+maillog_file = /var/log/postfix.log

@@ -1,0 +1,82 @@
+version: "3.8"
+
+services:
+  smtp1:
+    build:
+      context: ./smtp1
+    hostname: smtp1.vetc.com.vn
+    ports:
+      - "2525:25"
+    volumes:
+      - ./smtp1/config:/etc/postfix
+      - ./smtp1/config/keys/dk1:/etc/opendkim/keys/dk1
+      - ./smtp1/logs:/var/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  smtp2:
+    build:
+      context: ./smtp2
+    hostname: smtp2.vetc.com.vn
+    ports:
+      - "2526:25"
+    volumes:
+      - ./smtp2/config:/etc/postfix
+      - ./smtp2/config/keys/dk2:/etc/opendkim/keys/dk2
+      - ./smtp2/logs:/var/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  smtp3:
+    build:
+      context: ./smtp3
+    hostname: smtp3.vetc.com.vn
+    ports:
+      - "2527:25"
+    volumes:
+      - ./smtp3/config:/etc/postfix
+      - ./smtp3/config/keys/dk3:/etc/opendkim/keys/dk3
+      - ./smtp3/logs:/var/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  smtp4:
+    build:
+      context: ./smtp4
+    hostname: smtp4.vetc.com.vn
+    ports:
+      - "2528:25"
+    volumes:
+      - ./smtp4/config:/etc/postfix
+      - ./smtp4/config/keys/dk4:/etc/opendkim/keys/dk4
+      - ./smtp4/logs:/var/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  smtp5:
+    build:
+      context: ./smtp5
+    hostname: smtp5.vetc.com.vn
+    ports:
+      - "2529:25"
+    volumes:
+      - ./smtp5/config:/etc/postfix
+      - ./smtp5/config/keys/dk5:/etc/opendkim/keys/dk5
+      - ./smtp5/logs:/var/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

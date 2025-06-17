@@ -1,0 +1,22 @@
+unsubscribe-processor:
+    build: ./unsubscribe-processor
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - JOB_QUEUE=email_jobs
+      - FILTERED_QUEUE=filtered_jobs
+      - BOUNCED_QUEUE=bounced
+      - UNSUB_FILE=/app/unsub_list.json
+      - UNSUB_SET_KEY=unsubscribed_emails
+      - BLPOP_TIMEOUT=5
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./unsubscribe-processor/unsub_list.json:/app/unsub_list.json
+      - ./unsubscribe-processor/logs:/app/logs
+    depends_on:
+      queue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

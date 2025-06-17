@@ -1,0 +1,25 @@
+gateway-api:
+    build: ./gateway-api
+    ports:
+      - "8080:8080"
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - JOB_QUEUE=email_jobs
+      - LOG_LEVEL=INFO
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - ./gateway-api/logs:/app/logs
+    depends_on:
+      queue:
+        condition: service_healthy
+    secrets:
+      - jwt_secret
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret

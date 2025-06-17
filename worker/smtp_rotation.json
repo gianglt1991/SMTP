@@ -1,0 +1,17 @@
+[
+  {
+    "id": "smtp1",
+    "host": "10.6.1.207",
+    "port": 587,
+    "weight": 0.7,
+    "reputation": 0.95
+  },
+  {
+    "id": "smtp2",
+    "host": "10.6.1.207",
+    "port": 25,
+    "weight": 0.3,
+    "reputation": 0.90
+  }
+]
+

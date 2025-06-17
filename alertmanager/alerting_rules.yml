@@ -1,0 +1,19 @@
+groups:
+- name: email-api
+  rules:
+  - alert: HighSMTPErrorRate
+    expr: rate(worker_metrics_smtp_errors[5m]) > 0.1
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "High SMTP error rate detected"
+      description: "{{ $value }} errors per second in worker service."
+  - alert: QueueBacklog
+    expr: redis_queue_length{queue="email_jobs"} > 1000
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Email jobs queue backlog"
+      description: "{{ $value }} jobs pending in email_jobs queue."

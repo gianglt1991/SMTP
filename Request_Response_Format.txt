@@ -1,0 +1,24 @@
+-----------
+Request Format:
+---------
+
+POST /send-email HTTP/1.1
+Host: <API_MACHINE_IP>:8080
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "to": "recipient@example.com",
+  "subject": "Test Email",
+  "body": "Hello, this is a test email."
+}
+
+--------------
+Example response:
+------------
+
+{
+  "status": "success",
+  "message": "Email queued successfully",
+  "job_id": "12345"
+}

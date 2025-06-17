@@ -1,0 +1,5 @@
+flask==3.0.3
+redis==5.0.8
+gunicorn==22.0.0
+python-json-logger==2.0.7
+python-jose==3.3.0

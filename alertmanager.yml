@@ -1,0 +1,9 @@
+global:
+  smtp_smarthost: 'smtp1:25'
+  smtp_from: 'alert@yourdomain.com'
+route:
+  receiver: 'email'
+receivers:
+  - name: 'email'
+    email_configs:
+      - to: 'admin@yourdomain.com'

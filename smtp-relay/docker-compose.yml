@@ -1,0 +1,47 @@
+smtp1:
+    build: ./smtp-relay
+    hostname: smtp1
+    networks:
+      relay-net:
+        ipv4_address: 172.30.0.2
+    volumes:
+      - ./smtp-relay/certs:/etc/postfix/certs
+      - ./smtp-relay/keys:/etc/opendkim/keys
+      - ./smtp-relay/logs:/var/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  smtp2:
+    build: ./smtp-relay
+    hostname: smtp2
+    networks:
+      relay-net:
+        ipv4_address: 172.30.0.3
+    volumes:
+      - ./smtp-relay/certs:/etc/postfix/certs
+      - ./smtp-relay/keys:/etc/opendkim/keys
+      - ./smtp-relay/logs:/var/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  smtp3:
+    build: ./smtp-relay
+    hostname: smtp3
+    networks:
+      relay-net:
+        ipv4_address: 172.30.0.4
+    volumes:
+      - ./smtp-relay/certs:/etc/postfix/certs
+      - ./smtp-relay/keys:/etc/opendkim/keys
+      - ./smtp-relay/logs:/var/log
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

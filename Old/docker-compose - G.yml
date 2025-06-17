@@ -1,0 +1,201 @@
+version: "3.8"
+
+services:
+  gateway-api:
+    build: ./gateway-api
+    ports:
+      - "8080:8080"
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - API_KEY=${API_KEY}  # Use environment variable for API authentication
+    depends_on:
+      queue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    secrets:
+      - api_key
+
+  queue:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: ./worker
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - SMTP_ROTATION_CONFIG=/app/smtp_rotation.json
+    depends_on:
+      queue:
+        condition: service_healthy
+      smtp1:
+        condition: service_started
+      smtp2:
+        condition: service_started
+      smtp3:
+        condition: service_started
+    volumes:
+      - ./worker/smtp_rotation.json:/app/smtp_rotation.json
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 2  # Horizontal scaling for workers
+
+  smtp1:
+    build: ./smtp-relay
+    hostname: smtp1
+    networks:
+      relay-net:
+        ipv4_address: 172.30.0.2
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  smtp2:
+    build: ./smtp-relay
+    hostname: smtp2
+    networks:
+      relay-net:
+        ipv4_address: 172.30.0.3
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  smtp3:
+    build: ./smtp-relay
+    hostname: smtp3
+    networks:
+      relay-net:
+        ipv4_address: 172.30.0.4
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  metrics:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mailq-logger:
+    build: ./mailq-logger
+    depends_on:
+      queue:
+        condition: service_healthy
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./mailq-logger/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ip-reputation:
+    build: ./ip-reputation
+    volumes:
+      - ./ip-reputation/blacklist.txt:/app/blacklist.txt
+    healthcheck:
+      test: ["CMD", "test", "-f", "/app/blacklist.txt"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  unsubscribe-processor:
+    build: ./unsubscribe
+    volumes:
+      - ./unsubscribe/unsub_list.json:/app/unsub_list.json
+    healthcheck:
+      test: ["CMD", "test", "-f", "/app/unsub_list.json"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  retry-handler:
+    build: ./retry-handler
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+    depends_on:
+      queue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  report-exporter:
+    build: ./report-exporter
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+    volumes:
+      - ./report-exporter/reports:/app/reports
+    healthcheck:
+      test: ["CMD", "test", "-d", "/app/reports"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mail-ui:
+    build: ./mail-ui
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./unsubscribe/unsub_list.json:/app/unsub_list.json
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  grafana-storage:
+
+networks:
+  relay-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
+secrets:
+  api_key:
+    file: ./secrets/api_key.txt

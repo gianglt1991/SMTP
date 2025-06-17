@@ -1,0 +1,16 @@
+Syslog                  yes
+LogWhy                  yes
+Canonicalization        relaxed/simple
+Mode                    sv
+SubDomains              no
+AutoRestart             yes
+AutoRestartRate         5/1h
+Socket                  inet:8891@localhost
+UserID                  opendkim:opendkim
+PidFile                 /var/run/opendkim/opendkim.pid
+UMask                   002
+KeyTable                refile:/etc/opendkim/KeyTable
+SigningTable            refile:/etc/opendkim/SigningTable
+ExternalIgnoreList      refile:/etc/opendkim/trustedhosts
+InternalHosts           refile:/etc/opendkim/trustedhosts
+ReportAddress           postmaster@yourdomain.com

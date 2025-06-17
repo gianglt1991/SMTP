@@ -1,0 +1,22 @@
+retry-handler:
+    build: ./retry-handler
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - FAILED_QUEUE=failed_jobs
+      - RETRY_QUEUE=email_jobs
+      - DEAD_LETTER_QUEUE=permanent_failed
+      - MAX_RETRIES=3
+      - BASE_DELAY_SECONDS=2
+      - MAX_DELAY_SECONDS=60
+      - BLPOP_TIMEOUT=5
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./retry-handler/logs:/app/logs
+    depends_on:
+      queue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

@@ -1,0 +1,258 @@
+#version: "3.8"
+
+services:
+  gateway-api:
+    build: ./gateway-api
+    ports:
+      - "8080:8080"
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - JOB_QUEUE=email_jobs
+      - LOG_LEVEL=INFO
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - ./gateway-api/logs:/app/logs
+    depends_on:
+      queue:
+        condition: service_healthy
+    secrets:
+      - jwt_secret
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: gunicorn --bind 0.0.0.0:8080 --log-level debug gateway:app
+
+  queue:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build: ./worker
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - JOB_QUEUE=email_jobs
+      - DELIVERED_QUEUE=delivered
+      - FAILED_QUEUE=failed_jobs
+      - BOUNCED_QUEUE=bounced
+      - SMTP_CONFIG_FILE=/app/smtp_rotation.json
+      - BLPOP_TIMEOUT=5
+      - DKIM_KEY_PATH=/app/keys/yourdomain.com.mail.private
+      - DKIM_DOMAIN=yourdomain.com
+      - DKIM_SELECTOR=mail
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./worker/smtp_rotation.json:/app/smtp_rotation.json
+      - ./worker/logs:/app/logs
+      - ./worker/keys:/app/keys
+    depends_on:
+      queue:
+        condition: service_healthy
+    secrets:
+      - smtp_smtp1_user
+      - smtp_smtp1_pass
+      - smtp_smtp2_user
+      - smtp_smtp2_pass
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 2
+
+  metrics:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
+  mailq-logger:
+    build: ./mailq-logger
+    depends_on:
+      queue:
+        condition: service_healthy
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./mailq-logger/logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ip-reputation:
+    build: ./ip-reputation
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - BLACKLIST_FILE=/app/blacklist.txt
+      - CHECK_INTERVAL=60
+      - BLACKLISTS=zen.spamhaus.org,dnsbl.sorbs.net
+      - SMTP_SERVER=smtp1.vetc.com.vn
+      - SMTP_PORT=2525
+      - EMAIL_FROM=alert@vetc.com.vn
+      - ADMIN_EMAIL=admin@vetc.com.vn
+      - CACHE_TTL=3600
+      - ALERT_COOLDOWN=3600
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./ip-reputation/blacklist.txt:/app/blacklist.txt
+      - ./ip-reputation/logs:/app/logs
+    depends_on:
+      queue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  unsubscribe-processor:
+    build: ./unsubscribe-processor
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - JOB_QUEUE=email_jobs
+      - FILTERED_QUEUE=filtered_jobs
+      - BOUNCED_QUEUE=bounced
+      - UNSUB_FILE=/app/unsub_list.json
+      - UNSUB_SET_KEY=unsubscribed_emails
+      - BLPOP_TIMEOUT=5
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./unsubscribe-processor/unsub_list.json:/app/unsub_list.json
+      - ./unsubscribe-processor/logs:/app/logs
+    depends_on:
+      queue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  retry-handler:
+    build: ./retry-handler
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - FAILED_QUEUE=failed_jobs
+      - RETRY_QUEUE=email_jobs
+      - DEAD_LETTER_QUEUE=permanent_failed
+      - MAX_RETRIES=3
+      - BASE_DELAY_SECONDS=2
+      - MAX_DELAY_SECONDS=60
+      - BLPOP_TIMEOUT=5
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./retry-handler/logs:/app/logs
+    depends_on:
+      queue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  report-exporter:
+    build: ./report-exporter
+    environment:
+      - QUEUE_URL=redis://queue:6379/0
+      - REPORT_INTERVAL=86400
+      - REPORT_DIR=/app/reports
+      - REPORT_KEYS=delivered,bounced,complaints
+      - MAX_REPORT_AGE_DAYS=30
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./report-exporter/reports:/app/reports
+      - ./report-exporter/logs:/app/logs
+    depends_on:
+      queue:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; redis.Redis.from_url('redis://queue:6379/0').ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    environment:
+      - REDIS_ADDR=queue:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      queue:
+        condition: service_healthy
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+
+  mail-ui:
+    build: ./mail-ui
+    ports:
+      - "5050:5050"
+    environment:
+      - UI_PORT=5050
+      - REACT_APP_API_URL=http://gateway-api:8080
+    volumes:
+      - ./mail-ui/logs:/app/logs
+    depends_on:
+      gateway-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${UI_PORT:-5050}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  grafana-storage:
+
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret
+  smtp_smtp1_user:
+    file: ./secrets/smtp_smtp1_user
+  smtp_smtp1_pass:
+    file: ./secrets/smtp_smtp1_pass
+  smtp_smtp2_user:
+    file: ./secrets/smtp_smtp2_user
+  smtp_smtp2_pass:
+    file: ./secrets/smtp_smtp2_pass
+  api_key:
+    file: ./secrets/api_key.txt

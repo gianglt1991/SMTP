@@ -3,22 +3,23 @@ import redis
 import json
 import time
 import logging
-from pythonjsonlogger import jsonlogger
-from os import getenv
-from python_jose import jwt
-from functools import wraps
+import os
 import uuid
+from pythonjsonlogger import jsonlogger
 
-# Configure logging
+# ENV
+REDIS_URL = os.getenv("QUEUE_URL", "redis://queue:6379/0")
+JOB_QUEUE = os.getenv("JOB_QUEUE", "email_jobs")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+API_PORT = int(os.getenv("API_PORT", 8080))
+
+# Logging setup
 log_dir = "/app/logs"
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, f"gateway_{time.strftime('%Y%m%d')}.log")
-logger = logging.getLogger(__name__)
-logger.setLevel(getenv("LOG_LEVEL", "INFO"))
-formatter = jsonlogger.JsonFormatter(
-    fmt="%(asctime)s %(levelname)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
+logger = logging.getLogger("gateway")
+logger.setLevel(LOG_LEVEL)
+formatter = jsonlogger.JsonFormatter(fmt="%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 file_handler = logging.FileHandler(log_file)
 file_handler.setFormatter(formatter)
 stream_handler = logging.StreamHandler()
@@ -26,104 +27,81 @@ stream_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
+# Init Flask app
 app = Flask(__name__)
-r = redis.Redis.from_url(getenv("QUEUE_URL", "redis://queue:6379/0"), decode_responses=True)
 
-def require_jwt(f):
-    """Decorator to require JWT authentication."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        if not token:
-            logger.warning("Missing JWT token")
-            return jsonify({"error": "Missing token"}), 401
-        try:
-            jwt_secret = getenv("JWT_SECRET")
-            if not jwt_secret:
-                raise ValueError("JWT_SECRET not configured")
-            jwt.decode(token, jwt_secret, algorithms=["HS256"])
-            logger.debug("JWT verified")
-        except jwt.JWTError as e:
-            logger.error(f"JWT error: {e}")
-            return jsonify({"error": "Invalid token"}), 401
-        return f(*args, **kwargs)
-    return decorated
+# Redis client
+try:
+    r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    r.ping()
+    logger.info(f"Connected to Redis at {REDIS_URL}")
+except redis.RedisError as e:
+    logger.critical(f"Failed to connect to Redis: {e}")
+    raise
 
 def validate_job(data):
-    """Validate email job data."""
-    required_fields = ["from", "to", "subject", "body"]
-    return all(field in data for field in required_fields)
+    return all(field in data for field in ["from", "to", "subject", "body"])
 
 @app.route("/", methods=["GET"])
 def index():
-    logger.info("Health check accessed")
-    return jsonify({"status": "Gateway API is running", "version": "1.0.0"}), 200
+    return jsonify({"status": "Gateway API is running", "version": "2.0.0"}), 200
 
 @app.route("/health", methods=["GET"])
 def health():
     try:
         r.ping()
-        logger.debug("Redis health check passed")
         return jsonify({"status": "healthy", "redis": "connected"}), 200
     except redis.RedisError as e:
-        logger.error(f"Redis health check failed: {e}")
+        logger.error(f"Redis health failed: {e}")
         return jsonify({"status": "unhealthy", "error": str(e)}), 503
 
 @app.route("/send", methods=["POST"])
-@require_jwt
 def send():
+    trace_id = str(uuid.uuid4())
+
     try:
         data = request.json
-        if not data:
-            logger.warning("Invalid JSON payload")
-            return jsonify({"error": "Invalid JSON"}), 400
+        if not data or not validate_job(data):
+            logger.warning(f"{trace_id} - Invalid job payload: {data}")
+            return jsonify({"error": "Missing or invalid fields"}), 400
 
-        if not validate_job(data):
-            logger.warning(f"Invalid job data: {data}")
-            return jsonify({"error": "Missing required fields"}), 400
-
-        # Check unsubscribe list
-        unsub_list = r.smembers("unsubscribed_emails")
-        to_addresses = data["to"] if isinstance(data["to"], list) else [data["to"]]
-        if any(email in unsub_list for email in to_addresses):
-            logger.warning(f"Unsubscribed recipient in job: {to_addresses}")
+        to_list = data["to"] if isinstance(data["to"], list) else [data["to"]]
+        unsub = r.smembers("unsubscribed_emails")
+        if any(email in unsub for email in to_list):
+            logger.warning(f"{trace_id} - Email blocked: {to_list}")
             return jsonify({"error": "Recipient unsubscribed"}), 400
 
-        # Check blacklisted IPs
-        client_ip = request.remote_addr
-        if r.sismember("blacklisted_ips", client_ip):
-            logger.warning(f"Blacklisted client IP: {client_ip}")
-            return jsonify({"error": "Client IP blacklisted"}), 403
+        ip = request.remote_addr
+        if r.sismember("blacklisted_ips", ip):
+            logger.warning(f"{trace_id} - Blocked IP: {ip}")
+            return jsonify({"error": "IP blacklisted"}), 403
 
-        # Rate limiting
-        rate_key = f"rate_limit:{client_ip}"
-        count = r.incr(rate_key)
+        # Rate limit
+        key = f"rate_limit:{ip}"
+        count = r.incr(key)
         if count == 1:
-            r.expire(rate_key, 3600)  # 1-hour window
-        if count > 100:  # 100 requests/hour
-            logger.warning(f"Rate limit exceeded for {client_ip}")
-            return jsonify({"error": "Rate limit exceeded"}), 429
+            r.expire(key, 3600)
+        if count > 100:
+            logger.warning(f"{trace_id} - Rate limit exceeded: {ip}")
+            return jsonify({"error": "Too many requests"}), 429
 
-        # Apply template if specified
+        # Apply template
         template_id = data.get("template_id")
         if template_id:
             template = r.get(f"template:{template_id}")
-            if template:
-                data["body"] = template.format(**data.get("template_data", {}))
-            else:
-                logger.warning(f"Template not found: {template_id}")
+            if not template:
                 return jsonify({"error": "Template not found"}), 404
+            data["body"] = template.format(**data.get("template_data", {}))
 
-        # Generate job ID
         job_id = str(uuid.uuid4())
-        data["job_id"] = job_id
-        data["submitted_at"] = time.time()
-        data["client_ip"] = client_ip
+        data.update({
+            "job_id": job_id,
+            "submitted_at": time.time(),
+            "client_ip": ip
+        })
 
-        # Queue job
-        r.rpush(getenv("JOB_QUEUE", "email_jobs"), json.dumps(data))
-        logger.info(f"Job queued: {job_id}")
-        r.incr("gateway_metrics:jobs_queued")
+        r.rpush(JOB_QUEUE, json.dumps(data))
+        logger.info(f"{trace_id} - Queued job: {job_id}")
 
         return jsonify({
             "status": "queued",
@@ -132,14 +110,11 @@ def send():
         }), 202
 
     except redis.RedisError as e:
-        logger.error(f"Redis error: {e}")
-        r.incr("gateway_metrics:redis_errors")
-        return jsonify({"error": "Queue unavailable"}), 503
+        logger.error(f"{trace_id} - Redis error: {e}")
+        return jsonify({"error": "Redis unavailable"}), 503
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        r.incr("gateway_metrics:unexpected_errors")
+        logger.exception(f"{trace_id} - Unexpected error: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
-    # For development only
-    app.run(host="0.0.0.0", port=8080, debug=False)
+    app.run(host="0.0.0.0", port=API_PORT, debug=False)

@@ -9,20 +9,17 @@ services:
       - QUEUE_URL=redis://queue:6379/0
       - JOB_QUEUE=email_jobs
       - LOG_LEVEL=INFO
-      - JWT_SECRET=${JWT_SECRET}
     volumes:
       - ./gateway-api/logs:/app/logs
     depends_on:
       queue:
         condition: service_healthy
-    secrets:
-      - jwt_secret
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
-    command: gunicorn --bind 0.0.0.0:8080 --log-level debug gateway:app
+      retries: 5
+      start_period: 20s
 
   queue:
     image: redis:7
@@ -68,17 +65,17 @@ services:
     deploy:
       replicas: 2
 
-  metrics:
-    image: prom/prometheus:latest
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-    ports:
-      - "9090:9090"
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+        #metrics:
+        #image: prom/prometheus:latest
+        #volumes:
+        #- ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+        #ports:
+        #- "9090:9090"
+        #healthcheck:
+        #test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+        #interval: 30s
+        #timeout: 10s
+        #retries: 3
 
   grafana:
     image: grafana/grafana:latest
@@ -244,8 +241,6 @@ volumes:
   grafana-storage:
 
 secrets:
-  jwt_secret:
-    file: ./secrets/jwt_secret
   smtp_smtp1_user:
     file: ./secrets/smtp_smtp1_user
   smtp_smtp1_pass:
